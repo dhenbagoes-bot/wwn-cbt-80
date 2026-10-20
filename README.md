@@ -105,8 +105,10 @@ File `backend/Kode.gs` + `backend/appsscript.json` disiapkan terpisah mengikuti 
 
 ## F. Catatan Teknis
 
-- **Token login hanya di memori** (hilang saat tab ditutup) — sengaja, demi anti-curang.
-  Yang boleh di `localStorage` hanya URL backend & pilihan madrasah.
+- **Sesi login**: admin/guru otomatis **tetap masuk** (token + profil tersimpan di
+  perangkat, kedaluwarsa 7 hari); sesi **siswa hanya di memori** (hilang saat
+  tab ditutup) — demi anti-curang. Yang boleh di `localStorage` hanya URL
+  backend, pilihan madrasah, dan sesi tersimpan admin/guru.
 - **Nilai resmi selalu dihitung server** (`nilai = round(skor/totalBobot*100)`).
   Util `hitungNilaiSkor` di frontend hanya untuk pratinjau/test.
 - Impor file (.txt/.docx/.xlsx) **tanpa library tambahan** — ZIP & XML ditulis/dibaca

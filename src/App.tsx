@@ -14,8 +14,11 @@ import Konfigurasi from './pages/Konfigurasi';
 import Login from './pages/Login';
 import type { PageProps } from './pages/PageProps';
 import {
+  bersihkanToken,
   getAllData,
   getApiUrl,
+  getSesiTersimpan,
+  getToken,
   logout,
   setApiUrl,
   setUrlEfektif,
@@ -69,7 +72,8 @@ export default function App() {
   const [memuat, setMemuat] = useState(true);
   const [galat, setGalat] = useState('');
   const [terhubung, setTerhubung] = useState(false);
-  // Sesi user HANYA di memori (token tidak pernah ditulis ke storage).
+  // Sesi user: token utama di memori; admin/guru boleh "tetap masuk"
+  // (token + profil tersimpan di perangkat, dipulihkan saat aplikasi dibuka).
   const [user, setUser] = useState<UserSesi | null>(null);
   const [page, setPage] = useState<PageKey>('dashboard');
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
@@ -84,6 +88,30 @@ export default function App() {
 
   const urlEfektif = urlManual.trim() || sekolah?.apiUrl.trim() || '';
 
+  // Galat "sesi berakhir" BUKAN kerusakan: backend bisa dihubungi, hanya
+  // token sesi yang tidak ada/kedaluwarsa (token memang hanya di memori dan
+  // hilang saat tab ditutup). Langsung arahkan ke halaman Masuk dengan pesan
+  // ramah, bukan layar "Gagal memuat data" yang menakutkan.
+  const tanganiGalatMuat = useCallback(
+    (pesan: string) => {
+      if (/sesi|login|token/i.test(pesan)) {
+        bersihkanToken(); // token mati (termasuk yang tersimpan) wajib dibuang
+        setTerhubung(true);
+        setGalat('');
+        setData(null);
+        setUser(null);
+        setModeUjian(false);
+        setPage('login');
+        toast('Sesi berakhir, silakan masuk kembali.', 'info');
+      } else {
+        setTerhubung(false);
+        setGalat(pesan);
+        setData(null);
+      }
+    },
+    [toast]
+  );
+
   const muatData = useCallback(async () => {
     setMemuat(true);
     setGalat('');
@@ -92,13 +120,11 @@ export default function App() {
       setData(normalisasiData(d));
       setTerhubung(true);
     } catch (err) {
-      setTerhubung(false);
-      setGalat(err instanceof Error ? err.message : 'Gagal memuat data.');
-      setData(null);
+      tanganiGalatMuat(err instanceof Error ? err.message : 'Gagal memuat data.');
     } finally {
       setMemuat(false);
     }
-  }, []);
+  }, [tanganiGalatMuat]);
 
   const muatDataRef = useRef(muatData);
   muatDataRef.current = muatData;
@@ -151,6 +177,9 @@ export default function App() {
         toast('Selamat datang! Hubungkan aplikasi ke backend dulu di menu Konfigurasi. 🏁', 'info');
         return;
       }
+      // Pulihkan sesi tersimpan (admin/guru "tetap masuk").
+      const sesiTersimpan = getSesiTersimpan();
+      if (sesiTersimpan && getToken()) setUser(sesiTersimpan);
       await muatDataRef.current();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,6 +197,7 @@ export default function App() {
       setApiUrl('');
       setUrlManual('');
       setUrlEfektif(s.apiUrl.trim());
+      bersihkanToken(); // token milik backend lama, tidak berlaku di sini
       setUser(null);
       setModeUjian(false);
       const params = new URLSearchParams(window.location.search);
@@ -183,14 +213,12 @@ export default function App() {
         setTerhubung(true);
         toast(`Beralih ke ${s.nama}.`, 'sukses');
       } catch (err) {
-        setTerhubung(false);
-        setGalat(err instanceof Error ? err.message : 'Gagal memuat data.');
-        setData(null);
+        tanganiGalatMuat(err instanceof Error ? err.message : 'Gagal memuat data.');
       } finally {
         setMemuat(false);
       }
     },
-    [toast]
+    [toast, tanganiGalatMuat]
   );
 
   const gantiUrlManual = useCallback(
@@ -204,14 +232,12 @@ export default function App() {
         setData(normalisasiData(d));
         setTerhubung(true);
       } catch (err) {
-        setTerhubung(false);
-        setGalat(err instanceof Error ? err.message : 'Gagal memuat data.');
-        setData(null);
+        tanganiGalatMuat(err instanceof Error ? err.message : 'Gagal memuat data.');
       } finally {
         setMemuat(false);
       }
     },
-    [sekolah]
+    [sekolah, tanganiGalatMuat]
   );
 
   const onNeedLogin = useCallback(

@@ -93,6 +93,8 @@ export default function Login({ user, toast, refreshData, pindah, onAuthChange }
             </Button>
             <p className="text-center text-xs text-slate-400">
               Akun siswa dibuat admin via Kelola Data &gt; Impor Siswa (password awal = NIS).
+              <br />
+              Admin &amp; guru otomatis tetap masuk di perangkat ini.
             </p>
           </form>
         )}

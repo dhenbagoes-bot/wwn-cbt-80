@@ -21,17 +21,34 @@ import type {
 //  - POST JSON { action, token?, ...params } ke /exec
 //    dengan Content-Type text/plain (hindari preflight CORS)
 //  - Envelope: { success, message, data, error }
-//  - KEAMANAN: token disimpan DI MEMORI (variabel modul), TIDAK PERNAH
-//    di localStorage/sessionStorage. URL backend di localStorage boleh
-//    (pola aplikasi sebelumnya).
+//  - KEAMANAN: token sesi utama DI MEMORI (variabel modul). Khusus
+//    admin/guru, token + profil user juga tersimpan di localStorage
+//    ("tetap masuk") agar tak perlu login ulang tiap buka aplikasi;
+//    sesi siswa TETAP hanya di memori (anti-curang). Token kedaluwarsa
+//    7 hari di server; token mati otomatis dibersihkan saat terdeteksi.
+//    URL backend di localStorage boleh (pola aplikasi sebelumnya).
 //  - Tanggal di wire: ISO yyyy-mm-dd; datetime: yyyy-MM-dd HH:mm:ss
 //  - !success -> lempar Error(message) agar UI menampilkannya
 // ============================================================
 
 const LS_API = 'wwn-cbt-80.apiUrl';
+const LS_TOKEN = 'wwn-cbt-80.token';
+const LS_USER = 'wwn-cbt-80.user';
 
-/** Token sesi — HANYA di memori. Hilang saat tab ditutup. */
-let tokenMem = '';
+function bacaTokenTersimpan(): string {
+  try {
+    return localStorage.getItem(LS_TOKEN) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Token sesi — utama di memori (variabel modul). Saat aplikasi dimuat,
+ * token admin/guru yang tersimpan ("tetap masuk") dihidrasi ke memori;
+ * token siswa tidak pernah disimpan (anti-curang).
+ */
+let tokenMem: string = bacaTokenTersimpan();
 
 /** URL efektif hasil resolusi App: override manual > ?school=/schools.json. */
 let urlEfektif = '';
@@ -108,13 +125,52 @@ export function isLoggedIn(): boolean {
   return !!tokenMem;
 }
 
-export function setToken(t: string): void {
+export function setToken(t: string, tetapMasuk = false): void {
   tokenMem = t || '';
+  try {
+    if (tetapMasuk && tokenMem) {
+      localStorage.setItem(LS_TOKEN, tokenMem);
+    } else {
+      // Termasuk saat login sebagai siswa: sesi tersimpan lama wajib dibuang.
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_USER);
+    }
+  } catch {
+    /* abaikan */
+  }
 }
 
-/** Token hanya hidup di memori — tidak ada yang bisa diambil dari storage. */
+/** Simpan profil user (khusus admin/guru). Otorisasi tetap dicek via token di server. */
+export function simpanSesi(user: UserSesi): void {
+  try {
+    localStorage.setItem(LS_USER, JSON.stringify(user));
+  } catch {
+    /* abaikan */
+  }
+}
+
+/** Profil user tersimpan (admin/guru) atau null. */
+export function getSesiTersimpan(): UserSesi | null {
+  try {
+    const s = localStorage.getItem(LS_USER);
+    if (!s) return null;
+    const u = JSON.parse(s) as UserSesi;
+    if (!u || (u.peran !== 'admin' && u.peran !== 'guru')) return null;
+    return u;
+  } catch {
+    return null;
+  }
+}
+
+/** Bersihkan token memori + sesi tersimpan (dipakai saat logout / sesi mati). */
 export function bersihkanToken(): void {
   tokenMem = '';
+  try {
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_USER);
+  } catch {
+    /* abaikan */
+  }
 }
 
 export async function login(username: string, password: string): Promise<UserSesi> {
@@ -127,8 +183,7 @@ export async function login(username: string, password: string): Promise<UserSes
     jenjangId: string;
     kelasId: string;
   }>('login', { username: username.trim(), password });
-  setToken(data.token);
-  return {
+  const u: UserSesi = {
     nama: data.nama,
     username: data.username,
     peran: data.peran,
@@ -136,6 +191,12 @@ export async function login(username: string, password: string): Promise<UserSes
     jenjangId: data.jenjangId || '',
     kelasId: data.kelasId || '',
   };
+  // Admin/guru: sesi tersimpan di perangkat ("tetap masuk").
+  // Siswa: sesi HANYA di memori (anti-curang).
+  const tetapMasuk = data.peran === 'admin' || data.peran === 'guru';
+  setToken(data.token, tetapMasuk);
+  if (tetapMasuk) simpanSesi(u);
+  return u;
 }
 
 export async function logout(): Promise<void> {
